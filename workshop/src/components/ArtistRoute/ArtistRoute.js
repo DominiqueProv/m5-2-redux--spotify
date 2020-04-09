@@ -1,114 +1,197 @@
-import React from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import styled from 'styled-components';
-
+import { useSelector, useDispatch } from 'react-redux';
+import { fetchArtistProfile, fetchTopTrack, fetchRelatedArtists } from '../../helper/api-helper';
+import { numFollowers } from '../utils';
 import {
-  requestAllArtistInfo,
-  receiveArtistProfile,
-  receiveRelatedArtists,
-  receiveTopTracks,
-  finishReceivingAllArtistInfo,
+  requestArtist,
+  receiveArtistData,
   receiveArtistError,
-} from '../../actions';
-import { getArtist, getArtistStatus } from '../../reducers/artists.reducer';
-import { getAccessToken } from '../../reducers/auth.reducer';
-import {
-  fetchRelatedArtists,
-  fetchArtistProfile,
-  fetchTopTracks,
-} from '../../helpers/api.helpers';
+  requestTopTrack,
+  receiveTopTrack,
+  receiveTopTrackError,
+  requestRelatedArtists,
+  receiveRelatedArtists,
+  receiveRelatedArtistsError,
+  finishReceivingAllArtistInfo,
+} from '../actions';
+import styled from 'styled-components'
+import PlayButton from 'react-play-button';
+import "react-loader-spinner/dist/loader/css/react-spinner-loader.css";
+import Loader from 'react-loader-spinner';
+import RelatedArtist from "../RelatedArtists";
 
-import FullScreenSpinner from '../FullScreenSpinner';
 
-import Header from './Header';
-import TopTracks from './TopTracks';
-import GenreTags from './GenreTags';
-import RelatedArtists from './RelatedArtists';
+const SelectedArtist = () => {
+  const dispatch = useDispatch();
+  const accessToken = useSelector((state) => state.auth.token)
+  const state = useSelector((state) => state.artists)
+  const { topTrack, currentArtist, relatedArtists } = state;
+  const { id } = useParams();
+  const white = 'white'
+  const [play, setPlay] = useState(false)
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+    dispatch(requestArtist())
+    const artistFetchPromise = fetchArtistProfile(accessToken, id)
+      .then(res => res.json())
+      .then(payload => {
+        dispatch(receiveArtistData(payload));
+      }).catch((err) => {
+        console.log(err);
+        dispatch(receiveArtistError(err))
+      });
 
-const ArtistDetailsContainer = () => {
-  const artist = useSelector(getArtist);
-  const artistStatus = useSelector(getArtistStatus);
+    dispatch(requestTopTrack())
+    const artistTopTrack = fetchTopTrack(accessToken, id)
+      .then(res => res.json())
+      .then(payload => {
+        dispatch(receiveTopTrack(payload))
+        console.log(payload)
+      }).catch((err) => {
+        console.log(err);
+        dispatch(receiveTopTrackError(err))
+      });
 
-  useSpotifyData();
+    dispatch(requestRelatedArtists())
+    const relatedArtists = fetchRelatedArtists(accessToken, id)
+      .then(res => res.json())
+      .then(payload => {
+        dispatch(receiveRelatedArtists(payload))
+        console.log(payload)
+      }).catch((err) => {
+        console.log(err);
+        dispatch(receiveRelatedArtistsError(err))
+      });
 
-  if (artistStatus === 'loading') {
-    return <FullScreenSpinner />;
+    Promise.all([artistFetchPromise, artistTopTrack, relatedArtists])
+      .then(() => dispatch(finishReceivingAllArtistInfo()))
+      .catch((err) => {
+        console.log(err);
+        dispatch(receiveArtistError(err))
+      });
+  }, [accessToken, id])
+
+  let followers = '';
+  if (currentArtist) {
+    followers = numFollowers(currentArtist.followers.total)
   }
 
-  if (!artist) {
-    // SOmething's gone wrong!
-    return 'Error';
+  if (!currentArtist && !topTrack && !relatedArtists) {
+    return (
+      <div style={{
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}>
+        <Loader
+          type="Oval"
+          color="#FF4FD8"
+          height={50}
+          width={50}
+          timeout={3000}
+        />
+      </div>
+    )
   }
 
   return (
     <>
-      <Section>
-        <Header
-          photoSrc={artist.profile.images[1].url}
-          name={artist.profile.name}
-          followerCount={artist.profile.followers.total}
-        />
-      </Section>
-      <Section>
-        {artist.topTracks && <TopTracks tracks={artist.topTracks} />}
-      </Section>
-      <Section>
-        {artist.profile.genres && <GenreTags genres={artist.profile.genres} />}
-      </Section>
-      <Section>
-        {artist.relatedArtists && (
-          <RelatedArtists artists={artist.relatedArtists} />
-        )}
-      </Section>
+      {currentArtist && topTrack && relatedArtists &&
+        <Wrapper>
+          <ImgWrapper>
+            <img src={currentArtist.images[0].url} alt={currentArtist.name} width='300px' />
+          </ImgWrapper>
+          <ArtistName>{currentArtist.name}</ArtistName>
+          <h3 style={{ color: '#FF4FD8', paddingTop: '30px' }}>
+            {followers} <span style={{ color: 'white' }}>followers</span></h3>
+          <div style={{ display: 'flex' }}>
+            {topTrack.tracks.slice(0, 3).map(track => (
+              <div style={{ margin: '10px' }}>
+                <PlayButton style={{ padding: '10px' }}
+                  url={track.preview_url}
+                  playIconColor={white}
+                  stopIconColor={white}
+                  idleBackgroundColor={'rgba(75, 75, 75, 0.4)'}
+                  progressCircleColor={'#3354FF'}
+                  progressCircleWidth={3}
+                  active={play === track.id}
+                  play={() => setPlay(track.id)}
+                  stop={() => setPlay(null)}
+                />
+              </div>
+            ))}
+          </div>
+          <h2 style={{ marginTop: '40px' }}>tags</h2>
+          <TagsBox>
+            <h3>{currentArtist.genres[1]}</h3>
+            <h3>{currentArtist.genres[2]}</h3>
+          </TagsBox>
+          <h2 style={{ marginTop: '40px' }}>related artists</h2>
+          <RelatedWrapper>
+            {relatedArtists.artists.map(artist => (
+              <RelatedArtist relatedArtists={artist} />
+            ))}
+          </RelatedWrapper>
+        </Wrapper>
+      }
     </>
-  );
+  )
 };
 
-const useSpotifyData = () => {
-  const { artistId } = useParams();
+const RelatedWrapper = styled.div`
+display: flex;
+flex-wrap: nowrap;
+overflow-x: auto;
+width: 100%;
+overflow: auto;
+scroll-snap-type: x proximity;
+&::-webkit-scrollbar {
+    display: none;
+  }
+`
 
-  const dispatch = useDispatch();
 
-  const accessToken = useSelector(getAccessToken);
+const Wrapper = styled.div`
+  width: 500px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+`
 
-  React.useEffect(() => {
-    if (!accessToken) {
-      return;
+const ImgWrapper = styled.div`
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin-top: 80px;
+  position: relative;
+`
+const ArtistName = styled.div`
+  font-size: 4em;
+  position: absolute;
+  top: 270px;
+  font-weight: 600;
+`
+const TagsBox = styled.div`
+  display: flex;
+  width: 400px;
+  justify-content: center;
+    h3{
+      background-color: rgba(75, 75, 75, 0.4);
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: .9em;
+      margin: 0 10px;
     }
+`
 
-    dispatch(requestAllArtistInfo());
+export default SelectedArtist;
 
-    const artistProfilePromise = fetchArtistProfile(accessToken, artistId).then(
-      json => {
-        dispatch(receiveArtistProfile(json));
-      }
-    );
 
-    const relatedArtistsPromise = fetchRelatedArtists(
-      accessToken,
-      artistId
-    ).then(json => {
-      dispatch(receiveRelatedArtists(json));
-    });
-
-    const topTracksPromise = fetchTopTracks(accessToken, artistId).then(
-      json => {
-        dispatch(receiveTopTracks(json));
-      }
-    );
-
-    Promise.all([artistProfilePromise, relatedArtistsPromise, topTracksPromise])
-      .then(() => dispatch(finishReceivingAllArtistInfo()))
-      .catch(err => {
-        console.error(err);
-        dispatch(receiveArtistError(err));
-      });
-  }, [accessToken, artistId]);
-};
-
-const Section = styled.section`
-  margin-bottom: 64px;
-`;
-
-export default ArtistDetailsContainer;
